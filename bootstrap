@@ -124,7 +124,6 @@ fi
 shift $((OPTIND-1))
 root="$1"
 shift
-apk add --quiet findmnt
 
 install_root "$root" "$@"
 
