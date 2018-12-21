@@ -74,6 +74,9 @@ install_root() (
 		$apkflags $repoflags $pkgs
 
 	setup_runlevels "$mnt" $pkgs
+
+	# Clear root password
+	sed -e 's/^root:.*/root::0::::::/' -i "$mnt"/etc/shadow
 )
 
 make_tarball() (
