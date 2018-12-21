@@ -1,0 +1,134 @@
+#!/bin/sh -eu
+usage() {
+	echo "Usage: $0 [-h] [-t out] [-m machine] <root> [extra packages...]"
+}
+
+init_chroot_mounts() (
+	mnt="$1"
+	for i in proc dev
+	do
+		mkdir -p "$mnt"/$i
+		mount --bind /$i "$mnt"/$i
+	done
+)
+
+cleanup_chroot_mounts() (
+	mnt="$1"
+	for i in proc dev
+	do
+		umount "$mnt"/$i
+	done
+)
+
+setup_runlevels() (
+	mnt="$1"
+	cd "$mnt"
+	for srv in bootmisc hostname swap sysctl syslog urandom
+	do
+		ln -s /etc/init.d/$srv etc/runlevels/boot/
+	done
+	for srv in killprocs mount-ro savecache
+	do
+		ln -s /etc/init.d/$srv etc/runlevels/shutdown/
+	done
+	for srv in dmesg devfs hwdrivers mdev
+	do
+		ln -s /etc/init.d/$srv etc/runlevels/sysinit/
+	done
+	if [ "$machine" = "hifiveu" ]
+	then
+		ln -s /etc/init.d/agetty etc/init.d/agetty.ttySIF0
+		ln -s /etc/init.d/agetty.ttySIF0 etc/runlevels/default/
+	fi
+)
+
+install_root() (
+	mnt="$1"
+	shift
+	pkgs="acct alpine-base $@"
+	apkflags="--initdb --quiet --progress --update-cache --clean-protected"
+
+	case "$machine" in
+		hifiveu)
+			# Provides agetty
+			pkgs="$pkgs util-linux"
+			;;
+	esac
+
+	mkdir -p "$mnt"/etc/apk/keys
+	cp /etc/apk/keys/* "$mnt"/etc/apk/keys
+
+	repos=$(sed -e 's/\#.*//' /etc/apk/repositories)
+	repoflags=
+	for i in $repos
+	do
+		repoflags="$repoflags --repository $i"
+	done
+
+	echo "Installing system..."
+	init_chroot_mounts "$mnt"
+	trap "cleanup_chroot_mounts '$mnt'" EXIT
+	apk add \
+		--arch=riscv64 \
+		--root "$mnt" \
+		$apkflags $repoflags $pkgs
+
+	setup_runlevels "$mnt" $pkgs
+)
+
+make_tarball() (
+	mnt="$1"
+	out="$2"
+	echo "Preparing tarball..."
+	( cd "$mnt" && find . -mindepth 1 -print0 ) \
+		| xargs -0 tar -czC "$mnt" > "$out"
+)
+
+machine="generic"
+while getopts 'hm:t:' opt
+do
+	case $opt in
+	h)
+		usage
+		printf "\t%s" "-h: show this message"
+		printf "\t%s" "-t out: create a tarball of the final system"
+		printf "\t%s" "-m machine: specify machine type, or help"
+		exit 0
+		;;
+	m)
+		machine="$OPTARG"
+		if [ "$machine" = "" ]
+		then
+			echo "Supported machines:"
+			printf "\tgeneric"
+			printf "\thifiveu"
+			exit 1
+		fi
+		;;
+	t)
+		tarball="$OPTARG"
+		;;
+	?)
+		usage >&2
+		exit 1
+		;;
+	esac
+done
+
+if [ $# -lt 1 ]
+then
+	usage >&2
+	exit 1
+fi
+
+shift $((OPTIND-1))
+root="$1"
+shift
+apk add --quiet findmnt
+
+install_root "$root" "$@"
+
+if [ "${tarball:-}" != "" ]
+then
+	make_tarball "$root" "$tarball"
+fi
