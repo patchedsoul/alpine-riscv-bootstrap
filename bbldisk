@@ -1,0 +1,37 @@
+#!/bin/sh -eux
+if [ $# -ne 3 ]
+then
+	echo "Usage: $0 /dev/sdX /path/to/bbl.bin /path/to/root.tar.gz"
+fi
+bdev="$1"
+bblpath="$2"
+roottar="$3"
+
+if ! [ -b "$bdev" ]
+then
+	echo "Error: $bdev is not a block device"
+	exit 1
+fi
+
+BBL=2E54B353-1271-4842-806F-E436D6AF6985
+LINUX=0FC63DAF-8483-4772-8E79-3D69D8477DE4
+
+echo "Partitioning disk..."
+sgdisk -g --clear \
+	--new=1:2048:67583 --change-name=1:bootloader --typecode=1:"$BBL" \
+	--new=2:264192: --change-name=2:root --typecode=2:"$LINUX" \
+	"$bdev"
+
+echo "Preparing filesystem..."
+mkfs.ext4 "$bdev"2
+mount "$bdev"2 /mnt
+
+echo "Extracting root..."
+tar -C /mnt -xpvf "$roottar"
+
+umount /mnt
+
+echo "Writing BBL to disk..."
+dd if="$bblpath" of="$bdev"1 bs=4096
+
+sync
