@@ -57,6 +57,7 @@ install_root() (
 
 	mkdir -p "$mnt"/etc/apk/keys
 	cp /etc/apk/keys/* "$mnt"/etc/apk/keys
+	cp /etc/apk/repositories "$mnt"/etc/apk/repositories
 
 	repos=$(sed -e 's/\#.*//' /etc/apk/repositories)
 	repoflags=
@@ -75,8 +76,7 @@ install_root() (
 
 	setup_runlevels "$mnt" $pkgs
 
-	# Clear root password
-	sed -e 's/^root:.*/root::0::::::/' -i "$mnt"/etc/shadow
+	chroot "$mnt" passwd
 )
 
 make_tarball() (
